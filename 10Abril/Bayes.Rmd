@@ -1,0 +1,392 @@
+---
+ title: "Estadística Bayesiana Básica"
+ output:
+  html_document:
+    keep_md: yes
+    toc: yes
+    toc_float: true
+    theme: cerulean
+    highlight: pygments
+---
+
+## Introducción
+
+La `ruleta` es un modelo de variable aleatoria discreta del que se obtienen simiulaciones fácilmente. La definimos simplemente dando las superficies relativas de cada sector. En el siguiente ejemplo, la segunda área es doble de la primera, la tercera el triple, y así sucesivamente. Para simular de ese modelo discreto, no hace falta calcular la probabibilidad de cada color, aunque lo hacemos para ver cómo se hace:
+
+```{r message=FALSE, warning=FALSE}
+library(TeachBayes)
+areas=c(1,2,3,4,5)
+spinner_plot(areas, title="Una ruleta")
+df <- data.frame(Region = 1:5, areas, Probability = areas/sum(areas))
+df
+many_spins=spinner_data(areas,10000)
+bar_plot(many_spins)
+```
+
+```{r message=FALSE, warning=FALSE}
+library(dplyr)
+# Estimación de las probabilidades mediante esta simulación
+table(many_spins)/10000
+```
+
+```{r message=FALSE, warning=FALSE}
+library("grid")
+library("gridExtra")
+# Define 4 ruletas
+A=c(1,1,1)
+B=c(2,1,1)
+C=c(1,1,2)
+D=c(1,1,4)
+p1=spinner_plot(A, title="Ruleta A")
+p2=spinner_plot(B, title="Ruleta B")
+p3=spinner_plot(C, title="Ruleta C")
+p4=spinner_plot(D, title="Ruleta D")
+grid.arrange(p1,p2,p3,p4,ncol=2)
+```
+
+
+Se meten las cuatro ruletas en una caja. Se escoje una sin mirar y se hace girar. Sale el color <span style="color:red">rojo</span>. ¿Cuál es la probabilidad de que haya cogido cada una de las cuatro ruletas? Para responder, usamos el Teorema de Bayes.
+
+## Modelos, distribuciones a priori y verosimilitud.
+
+Tenemos $4$ modelos posibles: las cuatro ruletas. A priori, cada una tiene la misma probabilidad de ser sacada de la caja con lo que la distribución a priori es la uniforme. La verosimilitud es la probabilidad de lo que hemos observado (<span style="color:red">rojo</span>) bajo cada uno de los cuatro modelos.
+
+```{r message=FALSE, warning=FALSE}
+bayes_df <- data.frame(Model = paste("Ruleta",c("A", "B", "C", "D")), Prior=rep(0.25,4), Likelihood=round(c(1/3,1/2,1/4,1/6),2))
+bayes_df
+```
+
+**Actualización Bayesiana (Bayesian update)**: 
+
+```{r message=FALSE, warning=FALSE}
+bayes_df=bayesian_crank(bayes_df)
+bayes_df
+```
+
+La columna *Product* es el producto de la *prior* por la *verosimilitud (Likelihood)*. La columna *posterior* es la normalización del producto para que las probabilidades sumen $1$. Comparamos las distribuciones a priori y a posteriori sobre los cuatro modelos.
+
+```{r message=FALSE, warning=FALSE}
+prior=ggplot(bayes_df, aes(x=Model,y=Prior))+geom_col(color="blue", fill="blue")+ggtitle("Prior")
+posterior=ggplot(bayes_df, aes(x=Model,y=Posterior))+geom_col(color="blue", fill="blue")+ggtitle("Posterior")
+grid.arrange(prior,posterior,nrow=1)
+```
+
+**Actualización secuencial**
+
+Después de observar <span style="color:red">rojo</span>, nuestra distribución a posteriori se transforma en nuestra nueva distribución a priori. Si giramos de nuevo la ruleta y observamos <span style="color:blue">azul</span>, ¿cuál será la nueva distribución a posteriori?
+
+```{r message=FALSE, warning=FALSE}
+bayes_df=select(bayes_df,Model, Prior=Posterior)
+bayes_df$Likelihood=round(c(1/3,1/4,1/2,4/6),2)
+bayes_df=bayesian_crank(bayes_df)
+```
+
+```{r message=FALSE, warning=FALSE}
+prior=ggplot(bayes_df, aes(x=Model,y=Prior))+geom_col(color="blue", fill="blue")+ggtitle("Prior")
+posterior=ggplot(bayes_df, aes(x=Model,y=Posterior))+geom_col(color="blue", fill="blue")+ggtitle("Posterior")+ylim(0,0.4)
+grid.arrange(prior,posterior,nrow=1)
+```
+
+Una vez que observamos dos tiradas con resultado (<span style="color:red">rojo</span>, <span style="color:blue">azul</span>) las ruletas más probables son la $B$ y la $C$.
+
+## Bayes con modelos discretos. Estimación de una proporción. 
+
+Supón que en la Escuela realizamos una encuesta preguntando: ¿Cuál es tu día favorito para comer fuera? y estamos interesados en estimar la probabilidad de que ese día sea del fin de semana (Sábado o Domingo). Tenemos, a priori, una opinión formada sobre los valores de esa probabilidad, resumida en la siguiente distribución a priori:
+
+1. Los valores posibles son: $0.3, 0.4, 0.5, 0.6, 0.7, 0.8$
+2. Los valores más probables son $0.5$ y $0.6$.
+3. Esos dos valores tienen el doble de probabilidad que los otros.
+
+Construimos esa distribución a priori:
+
+```{r}
+bayes_df <- data.frame(P = seq(0.3, 0.8, by = 0.1),
+Prior = c(1, 1, 2, 2, 1, 1) / 8)
+bayes_df
+```
+Ahora recogemos los datos:
+
+1. Le preguntamos a $20$ estudiantes.
+2. $12$ de $20$ dicen que prefieren Sábado o Domingo para comer fuera.
+3. Este es un experimento Binomial.
+
+¿Cuál es la probabilidad (verosimilitud) del resultado? ¿Cuál es la probabilidad de $12$ éxitos en $20$ pruebas cuando la probabilidad de éxito es $p$?
+
+$$ X \sim Bin(20, p) \qquad P(X=12)=\binom{20}{12} p^{12} (1-p)^{8} $$
+Tenemos que evaluar esa probabilidad con los posibles valores de $p$:
+
+```{r}
+bayes_df$Likelihood=dbinom(12,size=20,prob=bayes_df$P)
+round(bayes_df,3)
+```
+Ponemos en marcha la maquinaria Bayesiana y comparamos las distribuciones a priori y a posteriori:
+
+```{r}
+bayes_df=bayesian_crank(bayes_df)
+round(bayes_df,3)
+prior_post_plot(bayes_df)
+```
+
+¿Cuál es la probabilidad de que $p$ sea $>0.5$? Es $P(p>0.5)=0.463+0.147+0.029=0.639$.
+
+## Bayes con modelos continuos. Estimación de una proporción.
+
+Ahora nuestra opinión a priori sobre $p$ va a estar representada por una distribución de probabilidad continua. Creemos que cualquier valor de $p$ entre $0$ y $1$ es posible y la probabilidad de cada intervalo de valores va a venir determinado por una distribución beta. La distribución beta es continua en el intervalo $(0,1)$ y viene determinada por dos parámetros de forma $(a,b)$. Su funcion de densidad es proporcional a $p^{(a-1)}(1-p)^{(b-1)}$. Es difícil determinar los parámetros $(a,b)$ para nuestras creencias sobre la distribución de $p$. Vamos a suponer que somos capaces de determinar dos quantiles de esa distribución, por ejemplo, la mediana y el percentil $90$:
+
+1. La mediana es $0.55$ significando que son igualmente probables los valores de $p \in (0,0.55)$ que $p \in (0.55,1)$. 
+2. La probabilidad de que $p \leq 0.8$ es 0.9. Es decir, el percentil $90$ de la distribución es $0.8$.
+
+Con estos dos cuantiles la función *beta.select()* ajusta los parámetros $(a,b)$ de la distribución beta que más se ajustan:
+
+```{r}
+p50 <- list(x = 0.55, p = 0.5) # especificamos la mediana
+p90 <- list(x = 0.80, p = 0.9) # especificamos el percentil 90
+beta.select(p50,p90) # estimamos a y b
+beta_draw(c(3.065,2.56))
+```
+
+Esa es nuestra distribución a priori sobre $p$. Algunas comprobaciones:
+
+```{r eval=FALSE}
+beta_area(0,0.55,c(3.06,2.56))
+beta_area(0.55,1,c(3.06,2.56))
+beta_area(0,0.4,c(3.06,2.56)) # prob de que p esté en (0,0.4)
+```
+
+**Actualizamos la distribución beta**
+
+Combinando la distribución beta a priori y la verosimilitud Binomial calculamos la distribución a posteriori, que resulta ser beta de nuevo, con los parámetros actualizados con la información muestral. 
+
+```{r}
+# Calculate shape parameters for beta posterior:
+prior_par <- c(3.06, 2.56)
+data <- c(12, 8) # número de éxitos y fracasos
+post_par <- prior_par + data
+post_par
+beta_prior_post(prior_par, post_par)
+```
+
+### Inferencia Bayesiana (para una proporción)
+
+Una vez que tenemos la distribución a posteriori sobre el parámetro de interés, en este caso una proporción $p$, podemos construir contrastes de hipótesis e intervalos de probabilidad (ojo, no intervalos de confianza que es lo que construimos en Estadística Clásica). La estimación puntual clásica de $p$ sería $12/20=0.6$. La estimación puntual bayesiana para este parámetro $p$ sería la media de la distribución a posteriori $a/(a+b)=$ `r post_par[1]/(sum(post_par))`
+
+**Contraste de Hipótesis**
+
+Supongamos que alguien hace la siguiente afirmación:
+
+> Al menos el $75\%$ de los estudiantes prefieren comer fuera el Sábado o el Domingo.
+
+¿Es razonable dicha afirmación? En realidad lo que está afirmando es que $p \geq 0.75$. Calculemos esta probabilidad bajo la distribución a posteriori.
+
+```{r}
+beta_area(0.75,1,post_par)
+```
+
+Esa probabilidad es $0.04$, menor que el clásico límite de $0.05$, por lo que rechazamos la veracidad de la afirmación. 
+
+**Intervalos de probabilidad**
+
+Un intervalo de probabilidad, por ejemplo, al $90\%$, contiene el $90\%$ de la probabilidad a posteriori. 
+
+```{r}
+beta_interval(0.9,post_par)
+```
+
+Comparamos con el intervalo clásico. Hay que recordar que en el intervalo clásico hablamos de confianza y que esta tiene sentido en el marco del muestreo repetido de una misma población.
+
+```{r}
+y <- 12; n <- 20
+p_hat <- (y)/(n)
+se <- sqrt(p_hat * (1 - p_hat)/(n))
+CI <- c(p_hat - 1.645 * se, p_hat + 1.645 * se)
+CI
+```
+
+Los centros de ambos intervalos son ligeramente distintos (`r p_hat` y `r round(post_par[1]/sum(post_par),3)`) y la longitud del Intervalo Bayesiano es menor ya que en su construcción usamos la información a priori y la información proporcionada por los datos. 
+
+Construimos un data frame con los datos para dibujar ambos inetrvalos y compararlos mejor:
+
+```{r}
+PI=c(0.427,0.741)
+inter=data.frame(CI,PI)
+inter=as.data.frame(t(inter))
+colnames(inter)=c("lower", "upper")
+inter$type=factor(c(1,2))
+ggplot(inter, aes(x=type, y=c(CI[1],CI[2]),color=type))+geom_errorbar(aes(ymin=lower,ymax=upper))+ylab("")+xlab("Intervalos")
+```
+
+**A priori no informartiva**
+
+Un intervalo de probabilidad bayesiano usando una a priori no informativa (como la distribución unforme) será, generalmente, similar al intervalo de confianza clásico, supuesto que se ha calculado utilizando el mismo nivel de confianza (o probabilidad).
+
+```{r}
+# Calculate shape parameters for beta posterior:
+prior_par <- c(1, 1)
+data <- c(12, 8) # número de éxitos y fracasos
+post_par <- prior_par + data
+post_par
+beta_prior_post(prior_par, post_par)
+CI
+beta_interval(0.9,post_par)
+```
+
+**Simulando de la distribución a posteriori**
+
+```{r}
+# Calculate shape parameters for beta posterior:
+prior_par <- c(3.06, 2.56)
+data <- c(12, 8) # número de éxitos y fracasos
+post_par <- prior_par + data
+```
+
+```{r}
+# Simulate 10000 draws from the beta posterior: p_sim
+p_sim=rbeta(10000,post_par[1],post_par[2])
+# Construct a histogram of the simulated values
+hist(p_sim, freq=FALSE)
+# Compute the probability that P is larger than 0.7
+sum(p_sim>0.7)/10000
+# Find a 90% probability interval
+quantile(p_sim,c(0.05,0.95))
+```
+
+**Simulando odds (razón de probabilidades, oportunidad relativa)**
+```{r echo=FALSE}
+post_mean=round(post_par[1]/sum(post_par),3)
+odds=post_mean/(1-post_mean)
+```
+
+En inglés se utiliza la expresión **odds of an event**, en este caso el suceso es comer fuera el fin de semana, como la razón $\displaystyle{\frac{p}{1-p}}$. La estimación puntual bayesiana de este valor es `r round(odds,2)`.
+
+Propiedades de los *odds*:  
+
+1. Si es igual a $1$, "éxito" y "fracaso" tienen la misma probabilidad.  
+2. Si es $>1$, éxito es más probable que fracaso.  
+3. Si es $<1$, éxito es menos probable que fracaso. 
+
+```{r}
+# Compute the odds: o_sim
+o_sim=(p_sim/(1-p_sim))
+# Construct a histogram of the simulated values of o_sim
+hist(o_sim)
+# Find the probability the odds ratio is greater than 2
+sum(o_sim>2)/10000
+# Find a 90% probability interval for the odds ratio
+quantile(o_sim, c(0.05,0.95))
+```
+
+## Estimación de medias con a priori discreta
+
+Supongamos que la variable a estudiar es el tiempo de reacción en milisegundos en el juego *Reaction Time* en [humanbenchmark.com](https://www.humanbenchmark.com). Estamos interesados en el tiempo medio de reacción $M$. Supongamos que el tiempo de reacción es Normal, de media $M$ y desviación típica $\sigma$, como muestra la figura. Esta curva representa el modelo de muestreo para los tiempos de reacción que observemos. 
+
+<center>
+![Normal de media $M$ y d.t. $s$](prueba.png){width=450px}
+</center>
+
+Supongamos que para la distribución a priori creemos que $M$ puede ser igual a $250, 260, 270, 280$ y $290$ milisegundos y asignamos probabilidades a esos $5$ valores que reflejen nuestra opinión acerca del tiempo de reacción. Las gráficas siguientes muestran dos ejemplos de distribuciones a priori:
+
+```{r}
+Model <- seq(250, 290, by = 10)
+Prior1=rep(1/5,5)
+prob_plot(data.frame(Model, Prior1))
+Prior2=c(0.3,0.3,0.2,0.1,0.1)
+prob_plot(data.frame(Model,Prior2))
+```
+
+Observamos $10$ valores del tiempo de reacción y los guardamos en el vector *times*. Estos valores se suponen que provienen de una Normal de media $M$ y desviación típica $\sigma=20$ ms. (suponemos, para simplificar, que conocemos la desviación típica). 
+
+```{r}
+# Datos observados
+times <- c(240, 267, 308, 275, 271,268, 258, 295, 315, 262)
+# Media y error estándar (desviación típica de la media)
+ybar <- mean(times); n <- 10
+sigma <- 20; se <- sigma / sqrt(n)
+# Calcular la verosimilitud del valor observado bajo cada modelo
+Likelihood=dnorm(ybar,mean=Model,sd=se)
+# Crear un data frame con todos los elementos para aplicar Bayes
+bayes_df=data.frame(M=Model,Prior1,Likelihood)
+# Actualizar usando bayesian_crank para calcular las probabilidades a posteriori
+bayes_df=bayesian_crank(bayes_df)
+# Dibujamos
+prior_post_plot(bayes_df)
+```
+
+Una vez que se ha especificado uns distribución a priori para $M$, el Teorema de Bayes proporciona una receta simple para calcular la distribución a posteriori. Cualquier tipo de inferencia que se quiera hacer sobre la media $M$ se basará en algún resumen de esta distribución a posteriori. 
+
+## Estimación de medias con a priori continua.
+
+**Especificación de la Normal a priori. Estimación de parámetros.**
+
+Primero habría que ver cómo especificamos una distribución Normal para la media $M$. Su mediana puede ser relativamente fácil de estimar, pero es más difícil saber su desviación típica. Por ejemplo, supongamos que podemos especificar el percentil $60$ de la distribución de $M$ y eso nos ayudará a estimar la desviación típica. Supongamos que una media de $240$ ms. o menor es considerada rápida y una de $262.5$ se considera lenta. Podemos llegar a afirmaciones de este tipo:
+
+> La probabilidad de ser rápido es de $0.02$ y la de ser lento es de $0.4$
+
+Por tanto, el percentil $2$ de la distribución de $M$ es 240 y el $60$ es $262.5$. Los especificamos para construir una Normal con esas características.
+
+```{r}
+quantile1 <- list(p=0.02,x=240)
+quantile2 <- list(p=0.6,x=262.5)
+normal_par=normal.select(quantile1,quantile2)
+normal_par
+normal_draw(normal_par)
+```
+
+**Actualizando la distribución a priori**
+
+Si estamos de acuerdo con que esa distribución a priori resume y aproxima convenientemente mi conocimiento previo sobre $M$, continuamos actualizando la distribución a priori. Usamos las observaciones anteriores, su media y su error típico (ybar, se). 
+
+```{r}
+Data=c(ybar,se)
+Prior=normal_par
+Posterior=normal_update(Prior,Data)
+many_normal_plots(list(Prior,Posterior))
+```
+
+La distribución a priori Normal se dice que es una a priori **conjugada** ya que la a priori y la a posteriori son Normales. La fórmula de actualización de la media y la desviación típica son útiles ya que muestran claramente cómo se combina la información proporcionada por los datos y la información proporcionada por la a priori. La precisión se define como $1/Dt^2$.
+
+Fuente        | Media         | Precisión |   D.t.  |
+------------- | ------------- | --------- | ------- |
+A priori      | 260.02        |   0.0105  |  9.75   |
+Datos         | 275.9         |   0.025   |  6.32   |
+A posteriori  | 271.2         |   0.0355  |  5.3    |
+
+```{r}
+Precisions=1/c(9.75,6.32)^2
+Post_Precision <- sum(Precisions)
+Post_SD <- 1 / sqrt(Post_Precision)
+Post_mean <- weighted.mean(x = c(260.02, 275.9), w = Precisions)
+```
+
+### Inferencia Bayesiana (para una media). Simulación.
+
+Obtenemos una muestra de tamaño $1000$, por ejemplo, de la distribución a posteriori. Con ella calculamos probabilidades o intervalos de probabilidad para $M$.  
+
+```{r}
+M_sim <- rnorm(1000, 271.2, 5.3)
+sd(M_sim)
+# Probabilidad de que M sea menor de 260
+sum(M_sim<260)/1000
+# Intervalo de probabilidad al 70% para M
+quantile(M_sim, c(0.15,0.85))
+```
+
+**Distribución predictiva**
+
+La obtención de una muestra de la distribución predictiva (futuras observaciones de $y$, de mi futura puntuación en el test) requiere seguir dos pasos:  
+1. Simular valores de la distribución a posteriori de $M$.  
+2. Por cada valor simulado de $M$, simular una puntuación futura del test de la distribución en el muestreo, que, recordemos, era Normal de media $M$ y desviación típica $20$.
+
+```{r}
+M_sim <- rnorm(1000, 271.2, 5.3)
+y_sim <- rnorm(1000, M_sim, 20)
+# probabilidad de puntuar por debajo de 250
+sum(y_sim<250)/1000
+# Intervalo de predicción al 90% para mi puntuación
+quantile(y_sim,c(0.05,0.95))
+# Intervalo de probabilidad al 90% para la media de mi puntuación
+quantile(M_sim,c(0.05,0.95))
+```
+
+La distribución a posteriori y la distribución predictiva simuladas tienen medias similares (¡compruébalo!) pero la distribución predictiva tiene mayor varianza. Por eso hacer predicciones es más difícil ya que hay mucha incertidumbre asociada a los valores de una observación futura. 
+
+
